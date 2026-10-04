@@ -1,5 +1,8 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "sensor.h"
 #include <stdio.h>
+
 
 //Det_OL -> 한 줄씩 장애물 정보를 읽어서 장애물 정보 구조체 전달
 //Det_DE -> 한 줄씩 먼지 정보를 읽어서 먼지 정보 전달
@@ -16,9 +19,9 @@ ObstacleInfo Det_OL(void)
 
     // 처음 호출할 때만 파일 열기
     if (front_fp == NULL) {
-        front_fp = fopen("front.txt", "r");
-        left_fp = fopen("left.txt", "r");
-        right_fp = fopen("right.txt", "r");
+        fopen_s(&front_fp, "front.txt", "r");
+        fopen_s(&left_fp, "left.txt", "r");
+        fopen_s(&right_fp, "right.txt", "r");
     }
 
     info.front = ReadFront(front_fp);
