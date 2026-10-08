@@ -1,0 +1,30 @@
+#ifndef SENSOR_H
+#define SENSOR_H
+
+//장애물 위치 구조체
+typedef struct {
+    int front;
+    int left;
+    int right;
+} ObstacleInfo;
+
+// 센서 스레드 시작 (실제 하드웨어처럼 컨트롤러와 상관없이 계속 값을 갱신)
+// 성공 1, 실패(파일 열기 실패 등) 0
+int SensorInit(void);
+
+// 센서 스레드 종료 및 정리
+void SensorStop(void);
+
+// 호출한 순간의 최신 장애물 정보를 반환 (파일을 읽지 않고 최신값만 복사)
+ObstacleInfo Det_OL(void);
+
+// 호출한 순간의 최신 먼지 정보: 있으면 1 없으면 0
+int Det_DE(void);
+
+// 센서 값이 바뀌는 순간 신호되는 이벤트 핸들 (인터럽트 역할, 실제 타입은 HANDLE)
+void *SensorChangedEvent(void);
+
+// 시나리오 파일을 끝까지 다 읽었으면 1
+int SensorFinished(void);
+
+#endif
