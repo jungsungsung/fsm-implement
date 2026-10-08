@@ -1,0 +1,264 @@
+#include "controller.h"
+#include <stdio.h>
+
+// 기존 틱 수(1틱 = 200ms)를 시간으로 바꾼 값
+#define TURN_MS     1000  // 회전 5틱
+#define BACK_MS      600  // 후진 3틱
+#define POWERUP_MS  1000  // 파워업 5틱
+
+// FSM 상태
+typedef enum {
+    ST_FORWARD,   // 전진하며 청소
+    ST_TURNING,   // 회전 중
+    ST_BACKWARD   // 후진 중
+} RobotState;
+
+static RobotState g_state = ST_FORWARD;
+static unsigned long long g_stateEnd = 0;    // 회전/후진이 끝나는 시각
+static unsigned long long g_powerUpEnd = 0;  // 파워업이 끝나는 시각 (0이면 파워업 아님)
+
+// fsm 첫 작동 시 초기화
+void ControllerInit(){
+    g_state = ST_FORWARD;
+    g_powerUpEnd = 0;
+    MoveForward(ENABLE);
+    CleanerCommand(CLEANER_ON);
+}
+
+// 회전 시작: 기다리지 않고 끝나는 시각만 기록하고 바로 리턴
+static void StartTurn(int toRight, unsigned long long now)
+{
+    if (toRight) TurnRight();
+    else         TurnLeft();
+    g_state = ST_TURNING;
+    g_stateEnd = now + TURN_MS;
+}
+
+// 센서 값이 바뀌거나 타이머가 만료될 때마다 호출된다. 내부에서 Sleep 하지 않는다.
+void Controller(ObstacleInfo obstacle, int dust, unsigned long long now)
+{
+    int isFront = obstacle.front;
+    int isLeft = obstacle.left;
+    int isRight = obstacle.right;
+
+    //파워 업 상태가 끝나면 클리너 온
+    if (g_powerUpEnd && now >= g_powerUpEnd) {
+        g_powerUpEnd = 0;
+        CleanerCommand(CLEANER_ON);
+    }
+
+    switch (g_state)
+    {
+    case ST_TURNING:
+        if (now < g_stateEnd) {
+            return;  // 아직 회전 중
+        }
+        // 회전 완료 -> 전진 재개
+        CleanerCommand(CLEANER_ON);
+        MoveForward(ENABLE);
+        g_state = ST_FORWARD;
+        // 회전 직후 상황을 바로 판단 (앞이 또 막혀 있을 수 있음)
+        // fall through
+
+    case ST_FORWARD:
+        //장애물을 만났을 경우 (파워 업 중이어도 취소)
+        if (isFront)
+        {
+            g_powerUpEnd = 0;
+            CleanerCommand(CLEANER_OFF);
+            MoveForward(DISABLE);
+
+            if (!isRight) {
+                StartTurn(1, now);
+            }
+            else if (!isLeft) {
+                StartTurn(0, now);
+            }
+            else {
+                MoveBackward(ENABLE);
+                g_state = ST_BACKWARD;
+                g_stateEnd = now + BACK_MS;
+            }
+        }
+        //먼지를 만났을 경우
+        else if (dust && g_powerUpEnd == 0)
+        {
+            CleanerCommand(POWER_UP);
+            g_powerUpEnd = now + POWERUP_MS;
+        }
+        break;
+
+    case ST_BACKWARD:
+        if (now < g_stateEnd) {
+            return;  // 최소 후진 시간 동안은 계속 후진
+        }
+        //뒤로 가기가 끝났을 때 어디로 돌지 정함
+        if (!isRight) {
+            MoveBackward(DISABLE);
+            StartTurn(1, now);
+        }
+        else if (!isLeft) {
+            MoveBackward(DISABLE);
+            StartTurn(0, now);
+        }
+        // 양옆이 다 막혀 있으면 계속 후진.
+        // 옆이 열리는 순간 센서 이벤트가 와서 바로 회전한다.
+        break;
+    }
+}
+
+unsigned long ControllerNextTimeout(unsigned long long now)
+{
+    unsigned long long next = 0;
+
+    if (g_state == ST_TURNING ||
+        (g_state == ST_BACKWARD && now < g_stateEnd)) {
+        next = g_stateEnd;
+    }
+    if (g_powerUpEnd && (next == 0 || g_powerUpEnd < next)) {
+        next = g_powerUpEnd;
+    }
+
+    if (next == 0)   return CONTROLLER_NO_TIMEOUT;  // 센서 이벤트만 기다리면 됨
+    if (next <= now) return 0;
+    return (unsigned long)(next - now);
+}
+
+void MovingMotorInterface(MotorCommand command, MoveState state)
+{
+    switch (command)
+    {
+    case MOTOR_FORWARD:
+        switch (state)
+        {
+        case ENABLE:
+            printf("MovingMotorInterface : MOTOR_FORWARD,ENABLE 호출 \n");
+            break;
+        case DISABLE:
+            printf("MovingMotorInterface : MOTOR_FORWARD,DISABLE 호출 \n");
+            break;
+        default:
+            break;
+        }
+        break;
+    case MOTOR_BACKWARD:
+        switch (state)
+        {
+        case ENABLE:
+            printf("MovingMotorInterface : MOTOR_BACKWARD,ENABLE 호출 \n");
+            break;
+        case DISABLE:
+            printf("MovingMotorInterface : MOTOR_BACKWARD,DISABLE 호출 \n");
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void TurningMotorInterface(MotorCommand command)
+{
+    switch (command)
+    {
+    case MOTOR_TURN_LEFT:
+        printf("TurningMotorInterface : MOTOR_TURN_LEFT,ENABLE 호출 \n");
+        break;
+    case MOTOR_TURN_RIGHT:
+        printf("TurningMotorInterface : MOTOR_TURN_RIGHT,ENABLE 호출 \n");
+        break;
+    default:
+        break;
+    }
+}
+
+void MoveForward(MoveState state)
+{
+
+    switch (state)
+    {
+    case ENABLE:
+        printf("MoveForward : ENABLE 호출\n");
+        MovingMotorInterface(MOTOR_FORWARD, state);
+        break;
+    case DISABLE:
+        printf("MoveForward : DISABLE 호출\n");
+        MovingMotorInterface(MOTOR_FORWARD, state);
+        break;
+    default:
+        break;
+    }
+}
+void TurnRight()
+{
+    printf("TurnRight 호출\n");
+    TurningMotorInterface(MOTOR_TURN_RIGHT);
+}
+void TurnLeft()
+{
+    printf("TurnLeft 호출\n");
+    TurningMotorInterface(MOTOR_TURN_LEFT);
+}
+void MoveBackward(MoveState state)
+{
+    switch (state)
+    {
+    case ENABLE:
+        printf("MoveBackward : ENABLE 호출\n");
+        MovingMotorInterface(MOTOR_BACKWARD, state);
+        break;
+    case DISABLE:
+        printf("MoveBackward : DISABLE 호출\n");
+        MovingMotorInterface(MOTOR_BACKWARD, state);
+        break;
+    default:
+        break;
+    }
+}
+
+void CleanerInterface(CleanerState state)
+{
+    switch (state)
+    {
+    case POWER_UP:
+        printf("CleanerInterface : POWER_UP 호출 \n");
+
+        break;
+    case CLEANER_ON:
+        printf("CleanerInterface : CLEANER_ON 호출 \n");
+
+        break;
+    case CLEANER_OFF:
+        printf("CleanerInterface : CLEANER_OFF 호출 \n");
+
+        break;
+    default:
+        break;
+    }
+}
+
+void CleanerCommand(CleanerState state)
+{
+    switch (state)
+    {
+    case POWER_UP:
+        printf("CleanerCommand : POWER_UP 호출 \n");
+        CleanerInterface(POWER_UP);
+
+        break;
+    case CLEANER_ON:
+        printf("CleanerCommand : CLEANER_ON 호출 \n");
+        CleanerInterface(CLEANER_ON);
+
+        break;
+    case CLEANER_OFF:
+        printf("CleanerCommand : CLEANER_OFF 호출 \n");
+        CleanerInterface(CLEANER_OFF);
+
+        break;
+    default:
+        break;
+    }
+}
