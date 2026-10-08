@@ -1,0 +1,47 @@
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
+
+#include "sensor.h"
+
+typedef enum {
+    MOTOR_FORWARD,
+    MOTOR_BACKWARD,
+    MOTOR_TURN_LEFT,
+    MOTOR_TURN_RIGHT
+} MotorCommand;
+
+typedef enum
+{
+    CLEANER_ON,
+    CLEANER_OFF,
+    POWER_UP
+} CleanerState;
+
+typedef enum{
+    ENABLE,
+    DISABLE
+} MoveState;
+
+// 다음 타이머가 없을 때 ControllerNextTimeout이 돌려주는 값 (= INFINITE)
+#define CONTROLLER_NO_TIMEOUT 0xFFFFFFFFUL
+
+void ControllerInit();
+
+// 센서 변화 or 타이머 만료 시 호출. now = 현재 시각(ms). 절대 블로킹하지 않음
+void Controller(ObstacleInfo obstacle, int dust, unsigned long long now);
+
+// 다음 타이머(회전 끝, 후진 끝, 파워업 끝)까지 남은 ms. 없으면 CONTROLLER_NO_TIMEOUT
+unsigned long ControllerNextTimeout(unsigned long long now);
+
+void MovingMotorInterface(MotorCommand command,MoveState state);
+void TurningMotorInterface(MotorCommand command);
+
+void MoveForward(MoveState state);
+void TurnRight();
+void TurnLeft();
+void MoveBackward(MoveState state);
+
+void CleanerInterface(CleanerState state);
+void CleanerCommand(CleanerState state);
+
+#endif
