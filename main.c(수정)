@@ -3,42 +3,40 @@
 #include "sensor.h"
 #include <windows.h>
 
-int main(void){
+int  main(void){
 
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 
-    if (!SensorInit()) {
-        printf("센서 파일(front/left/right/dust.txt)을 열 수 없습니다\n");
-        return 1;
-    }
+    ObstacleInfo obstacle;
+    int dust_Existence;
 
     ControllerInit();
 
-    HANDLE sensorChanged = (HANDLE)SensorChangedEvent();
-    ULONGLONG start = GetTickCount64();
+    // 1틱 = 200ms. 매 틱마다 센서를 한 번 읽고(상시 입력을 틱으로 근사) 컨트롤러를 한 번 돌린다.
+    // 회전/후진 중에도 틱은 계속 돌아가므로 센서 입력이 멈추지 않는다.
+    int tick = 0;
 
-    // 고정 틱 없이: "센서 값이 바뀌거나" "타이머가 만료되는" 순간에만 깨어나서 처리
-    while (!SensorFinished()) {
-        DWORD timeout = ControllerNextTimeout(GetTickCount64());
-        DWORD result = WaitForSingleObject(sensorChanged, timeout);
-        if (SensorFinished()) break;
+    while (1) {
+        obstacle = Det_OL();
+        dust_Existence = Det_DE();
 
-        ULONGLONG now = GetTickCount64();
-        ObstacleInfo obstacle = Det_OL();
-        int dust_Existence = Det_DE();
-
-        if (result == WAIT_OBJECT_0) {
-            printf("\n[%5llu ms] 센서 변화 감지 -> 앞:%d 왼:%d 오:%d 먼지:%d\n",
-                   now - start, obstacle.front, obstacle.left, obstacle.right, dust_Existence);
-        } else {
-            printf("\n[%5llu ms] 타이머 만료\n", now - start);
+        // 센서 파일을 끝까지 읽으면 종료
+        if (obstacle.front < 0 || obstacle.left < 0 ||
+            obstacle.right < 0 || dust_Existence < 0) {
+            break;
         }
 
-        Controller(obstacle, dust_Existence, now);
+        printf("[tick %d] 앞:%d 왼:%d 오:%d 먼지:%d\n", tick,
+               obstacle.front, obstacle.left, obstacle.right, dust_Existence);
+
+        Controller(obstacle, dust_Existence);
+        printf("\n");
+
+        tick++;
+        Sleep(200);
     }
 
-    printf("\n시나리오 종료\n");
-    SensorStop();
+    printf("시나리오 종료\n");
     return 0;
 }
