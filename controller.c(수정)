@@ -1,10 +1,10 @@
 #include "controller.h"
 #include <stdio.h>
 
-// 기존 틱 수(1틱 = 200ms)를 시간으로 바꾼 값
-#define TURN_MS     1000  // 회전 5틱
-#define BACK_MS      600  // 후진 3틱
-#define POWERUP_MS  1000  // 파워업 5틱
+// 각 동작이 몇 틱 동안 이어지는지 (1틱 = main의 루프 한 바퀴)
+#define TURN_TICKS     5
+#define BACK_TICKS     3
+#define POWERUP_TICKS  5
 
 // FSM 상태
 typedef enum {
@@ -13,115 +13,109 @@ typedef enum {
     ST_BACKWARD   // 후진 중
 } RobotState;
 
-static RobotState g_state = ST_FORWARD;
-static unsigned long long g_stateEnd = 0;    // 회전/후진이 끝나는 시각
-static unsigned long long g_powerUpEnd = 0;  // 파워업이 끝나는 시각 (0이면 파워업 아님)
+static RobotState state = ST_FORWARD;
+
+// 현재 상태(회전/후진)가 몇 틱 남았는지
+static int stateTicks = 0;
+
+// powerUp 상태가 몇 틱 남았는지 저장
+static int powerUpTick = 0;
 
 // fsm 첫 작동 시 초기화
 void ControllerInit(){
-    g_state = ST_FORWARD;
-    g_powerUpEnd = 0;
+    state = ST_FORWARD;
+    stateTicks = 0;
+    powerUpTick = 0;
     MoveForward(ENABLE);
     CleanerCommand(CLEANER_ON);
 }
 
-// 회전 시작: 기다리지 않고 끝나는 시각만 기록하고 바로 리턴
-static void StartTurn(int toRight, unsigned long long now)
+// 회전 시작: 기다리지 않고 남은 틱만 설정하고 바로 리턴
+static void StartTurn(int toRight)
 {
     if (toRight) TurnRight();
     else         TurnLeft();
-    g_state = ST_TURNING;
-    g_stateEnd = now + TURN_MS;
+    state = ST_TURNING;
+    stateTicks = TURN_TICKS;
 }
 
-// 센서 값이 바뀌거나 타이머가 만료될 때마다 호출된다. 내부에서 Sleep 하지 않는다.
-void Controller(ObstacleInfo obstacle, int dust, unsigned long long now)
+// 매 틱마다 한 번 호출된다. 내부에서 Sleep 하지 않는다.
+void Controller(ObstacleInfo obstacle, int dust)
 {
     int isFront = obstacle.front;
     int isLeft = obstacle.left;
     int isRight = obstacle.right;
+    int isDust = dust;
 
     //파워 업 상태가 끝나면 클리너 온
-    if (g_powerUpEnd && now >= g_powerUpEnd) {
-        g_powerUpEnd = 0;
-        CleanerCommand(CLEANER_ON);
+    if (powerUpTick > 0) {
+        powerUpTick--;
+        if (powerUpTick == 0) {
+            CleanerCommand(CLEANER_ON);
+        }
     }
 
-    switch (g_state)
+    switch (state)
     {
     case ST_TURNING:
-        if (now < g_stateEnd) {
+        stateTicks--;
+        if (stateTicks > 0) {
             return;  // 아직 회전 중
         }
         // 회전 완료 -> 전진 재개
         CleanerCommand(CLEANER_ON);
         MoveForward(ENABLE);
-        g_state = ST_FORWARD;
-        // 회전 직후 상황을 바로 판단 (앞이 또 막혀 있을 수 있음)
+        state = ST_FORWARD;
+        // 회전이 끝난 틱의 센서 값으로 바로 판단 (앞이 또 막혀 있을 수 있음)
         // fall through
 
     case ST_FORWARD:
         //장애물을 만났을 경우 (파워 업 중이어도 취소)
         if (isFront)
         {
-            g_powerUpEnd = 0;
+            powerUpTick = 0;
             CleanerCommand(CLEANER_OFF);
             MoveForward(DISABLE);
 
             if (!isRight) {
-                StartTurn(1, now);
+                StartTurn(1);
             }
             else if (!isLeft) {
-                StartTurn(0, now);
+                StartTurn(0);
             }
             else {
                 MoveBackward(ENABLE);
-                g_state = ST_BACKWARD;
-                g_stateEnd = now + BACK_MS;
+                state = ST_BACKWARD;
+                stateTicks = BACK_TICKS;
             }
         }
         //먼지를 만났을 경우
-        else if (dust && g_powerUpEnd == 0)
+        else if (isDust && powerUpTick == 0)
         {
             CleanerCommand(POWER_UP);
-            g_powerUpEnd = now + POWERUP_MS;
+            powerUpTick = POWERUP_TICKS;
         }
         break;
 
     case ST_BACKWARD:
-        if (now < g_stateEnd) {
+        if (stateTicks > 0) {
+            stateTicks--;
+        }
+        if (stateTicks > 0) {
             return;  // 최소 후진 시간 동안은 계속 후진
         }
         //뒤로 가기가 끝났을 때 어디로 돌지 정함
         if (!isRight) {
             MoveBackward(DISABLE);
-            StartTurn(1, now);
+            StartTurn(1);
         }
         else if (!isLeft) {
             MoveBackward(DISABLE);
-            StartTurn(0, now);
+            StartTurn(0);
         }
-        // 양옆이 다 막혀 있으면 계속 후진.
-        // 옆이 열리는 순간 센서 이벤트가 와서 바로 회전한다.
+        // 양옆이 다 막혀 있으면 계속 후진하고, 다음 틱에 다시 확인
         break;
     }
-}
-
-unsigned long ControllerNextTimeout(unsigned long long now)
-{
-    unsigned long long next = 0;
-
-    if (g_state == ST_TURNING ||
-        (g_state == ST_BACKWARD && now < g_stateEnd)) {
-        next = g_stateEnd;
-    }
-    if (g_powerUpEnd && (next == 0 || g_powerUpEnd < next)) {
-        next = g_powerUpEnd;
-    }
-
-    if (next == 0)   return CONTROLLER_NO_TIMEOUT;  // 센서 이벤트만 기다리면 됨
-    if (next <= now) return 0;
-    return (unsigned long)(next - now);
 }
 
 void MovingMotorInterface(MotorCommand command, MoveState state)
