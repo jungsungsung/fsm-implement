@@ -2,7 +2,18 @@
 
 #include "sensor.h"
 #include <stdio.h>
+#include <stdlib.h>   // exit
 
+static FILE* IsFileOpen(const char* name)
+{
+    FILE* fp = NULL;
+    fopen_s(&fp, name, "r");
+    if (fp == NULL) {
+        printf("%s 를 열 수 없습니다\n", name);
+        exit(1);
+    }
+    return fp;
+}
 
 //Det_OL -> 한 줄씩 장애물 정보를 읽어서 장애물 정보 구조체 전달
 //Det_DE -> 한 줄씩 먼지 정보를 읽어서 먼지 정보 전달
@@ -19,9 +30,9 @@ ObstacleInfo Det_OL(void)
 
     // 처음 호출할 때만 파일 열기
     if (front_fp == NULL) {
-        fopen_s(&front_fp, "front.txt", "r");
-        fopen_s(&left_fp, "left.txt", "r");
-        fopen_s(&right_fp, "right.txt", "r");
+        front_fp = IsFileOpen("front.txt");
+        left_fp = IsFileOpen("left.txt");
+        right_fp = IsFileOpen("right.txt");
     }
 
     info.front = ReadFront(front_fp);
@@ -70,7 +81,7 @@ int Det_DE(void){
     static FILE* dust_fp = NULL;
 
     if(dust_fp == NULL){
-        dust_fp = fopen("dust.txt","r");
+        dust_fp = IsFileOpen("dust.txt");
     }
 
     return ReadDust(dust_fp);

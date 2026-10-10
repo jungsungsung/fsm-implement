@@ -50,7 +50,7 @@ void Controller(ObstacleInfo obstacle, int dust)
     //파워 업 상태가 끝나면 클리너 온
     if (powerUpTick > 0) {
         powerUpTick--;
-        if (powerUpTick == 0) {
+        if (powerUpTick == 0 && !isFront) {
             CleanerCommand(CLEANER_ON);
         }
     }
