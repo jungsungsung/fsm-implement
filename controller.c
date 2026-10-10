@@ -1,19 +1,45 @@
 #include "controller.h"
-#include <windows.h>
 #include <stdio.h>
 
-// 뒤로 가고 있는 상태 저장
-static int isMoveBackward = 0;
+// 각 동작이 몇 틱 동안 이어지는지 (1틱 = main의 루프 한 바퀴)
+#define TURN_TICKS     5
+#define BACK_TICKS     3
+#define POWERUP_TICKS  5
+
+// FSM 상태
+typedef enum {
+    ST_FORWARD,   // 전진하며 청소
+    ST_TURNING,   // 회전 중
+    ST_BACKWARD   // 후진 중
+} RobotState;
+
+static RobotState state = ST_FORWARD;
+
+// 현재 상태(회전/후진)가 몇 틱 남았는지
+static int stateTicks = 0;
 
 // powerUp 상태가 몇 틱 남았는지 저장
 static int powerUpTick = 0;
 
 // fsm 첫 작동 시 초기화
 void ControllerInit(){
+    state = ST_FORWARD;
+    stateTicks = 0;
+    powerUpTick = 0;
     MoveForward(ENABLE);
     CleanerCommand(CLEANER_ON);
 }
 
+// 회전 시작: 기다리지 않고 남은 틱만 설정하고 바로 리턴
+static void StartTurn(int toRight)
+{
+    if (toRight) TurnRight();
+    else         TurnLeft();
+    state = ST_TURNING;
+    stateTicks = TURN_TICKS;
+}
+
+// 매 틱마다 한 번 호출된다. 내부에서 Sleep 하지 않는다.
 void Controller(ObstacleInfo obstacle, int dust)
 {
     int isFront = obstacle.front;
@@ -21,225 +47,74 @@ void Controller(ObstacleInfo obstacle, int dust)
     int isRight = obstacle.right;
     int isDust = dust;
 
-    // 앞으로 몇 틱 동안 더 돌아야하는지 저장
-    int turnTicks = 0;
-    // 앞으로 몇 틱 동안 뒤로 가야하는지 저장
-    int moveBackTicks = 0;
-
-    if (isDust && !isFront && powerUpTick == 0)
-    {
-        CleanerCommand(POWER_UP);
-        powerUpTick = 5;
-    }
-
-    if (powerUpTick)
-    {
+    //파워 업 상태가 끝나면 클리너 온
+    if (powerUpTick > 0) {
         powerUpTick--;
-        
-        //파워 업 상태가 끝나면 클리너 온
-        if(powerUpTick == 0){
+        if (powerUpTick == 0) {
             CleanerCommand(CLEANER_ON);
         }
+    }
 
-        //파워 업 상태에서 뒤로 가기가 끝나고 어디로 돌지 정함
-        if (isMoveBackward)
-        {
-            if (!isRight)
-            {
-                MoveBackward(DISABLE);
-                isMoveBackward = 0;
-
-                TurnRight();
-                turnTicks = 5;
-
-                // 트리거를 켜놓고 5틱동안 기다리기
-                while (turnTicks)
-                {
-                    turnTicks--;
-                    Sleep(200);
-                }
-
-                CleanerCommand(CLEANER_ON);
-                MoveForward(ENABLE);
-            }
-            else if (!isLeft)
-            {
-                MoveBackward(DISABLE);
-                isMoveBackward = 0;
-
-                TurnLeft();
-                turnTicks = 5;
-
-                // 트리거를 켜놓고 5틱동안 기다리기
-                while (turnTicks)
-                {
-                    turnTicks--;
-                    Sleep(200);
-                }
-
-                CleanerCommand(CLEANER_ON);
-                MoveForward(ENABLE);
-            }
-            return;
+    switch (state)
+    {
+    case ST_TURNING:
+        stateTicks--;
+        if (stateTicks > 0) {
+            return;  // 아직 회전 중
         }
+        // 회전 완료 -> 전진 재개
+        CleanerCommand(CLEANER_ON);
+        MoveForward(ENABLE);
+        state = ST_FORWARD;
+        // 회전이 끝난 틱의 센서 값으로 바로 판단 (앞이 또 막혀 있을 수 있음)
+        // fall through
 
-        //파워 업 상태에서 장애물을 만났을 때
+    case ST_FORWARD:
+        //장애물을 만났을 경우 (파워 업 중이어도 취소)
         if (isFront)
         {
-            if (!isRight)
-            {
-                powerUpTick = 0;
-                CleanerCommand(CLEANER_OFF);
-                MoveForward(DISABLE);
+            powerUpTick = 0;
+            CleanerCommand(CLEANER_OFF);
+            MoveForward(DISABLE);
 
-                TurnRight();
-                turnTicks = 5;
-
-                // 트리거를 켜놓고 5틱동안 기다리기
-                while (turnTicks)
-                {
-                    turnTicks--;
-                    Sleep(200);
-                }
-
-                CleanerCommand(CLEANER_ON);
-                MoveForward(ENABLE);
+            if (!isRight) {
+                StartTurn(1);
             }
-            else if (!isLeft)
-            {
-                powerUpTick = 0;
-                CleanerCommand(CLEANER_OFF);
-                MoveForward(DISABLE);
-
-                TurnLeft();
-                turnTicks = 5;
-
-                // 트리거를 켜놓고 5틱동안 기다리기
-                while (turnTicks)
-                {
-                    turnTicks--;
-                    Sleep(200);
-                }
-
-                CleanerCommand(CLEANER_ON);
-                MoveForward(ENABLE);
+            else if (!isLeft) {
+                StartTurn(0);
             }
-            else
-            {
-                powerUpTick = 0;
-                CleanerCommand(CLEANER_OFF);
-                MoveForward(DISABLE);
-
+            else {
                 MoveBackward(ENABLE);
-                isMoveBackward = 1;
-
-                moveBackTicks = 3;
-                while (moveBackTicks)
-                {
-                    moveBackTicks--;
-                    Sleep(200);
-                }
+                state = ST_BACKWARD;
+                stateTicks = BACK_TICKS;
             }
-            return;
         }
-    }
-
-    //뒤로 가기가 끝났을 때 어디로 돌지 정함
-    if (isMoveBackward)
-    {
-        if (!isRight)
+        //먼지를 만났을 경우
+        else if (isDust && powerUpTick == 0)
         {
+            CleanerCommand(POWER_UP);
+            powerUpTick = POWERUP_TICKS;
+        }
+        break;
+
+    case ST_BACKWARD:
+        if (stateTicks > 0) {
+            stateTicks--;
+        }
+        if (stateTicks > 0) {
+            return;  // 최소 후진 시간 동안은 계속 후진
+        }
+        //뒤로 가기가 끝났을 때 어디로 돌지 정함
+        if (!isRight) {
             MoveBackward(DISABLE);
-            isMoveBackward = 0;
-
-            TurnRight();
-            turnTicks = 5;
-
-            // 트리거를 켜놓고 5틱동안 기다리기
-            while (turnTicks)
-            {
-                turnTicks--;
-                Sleep(200);
-            }
-
-            CleanerCommand(CLEANER_ON);
-            MoveForward(ENABLE);
+            StartTurn(1);
         }
-        else if (!isLeft)
-        {
+        else if (!isLeft) {
             MoveBackward(DISABLE);
-            isMoveBackward = 0;
-
-            TurnLeft();
-            turnTicks = 5;
-
-            // 트리거를 켜놓고 5틱동안 기다리기
-            while (turnTicks)
-            {
-                turnTicks--;
-                Sleep(200);
-            }
-
-            CleanerCommand(CLEANER_ON);
-            MoveForward(ENABLE);
+            StartTurn(0);
         }
-        return;
-    }
-
-    //장애물을 만났을 경우
-    if (isFront)
-    {
-        if (!isRight)
-        {
-            CleanerCommand(CLEANER_OFF);
-            MoveForward(DISABLE);
-
-            TurnRight();
-            turnTicks = 5;
-
-            // 트리거를 켜놓고 5틱동안 기다리기
-            while (turnTicks)
-            {
-                turnTicks--;
-                Sleep(200);
-            }
-
-            CleanerCommand(CLEANER_ON);
-            MoveForward(ENABLE);
-        }
-        else if (!isLeft)
-        {
-            CleanerCommand(CLEANER_OFF);
-            MoveForward(DISABLE);
-
-            TurnLeft();
-            turnTicks = 5;
-
-            // 트리거를 켜놓고 5틱동안 기다리기
-            while (turnTicks)
-            {
-                turnTicks--;
-                Sleep(200);
-            }
-
-            CleanerCommand(CLEANER_ON);
-            MoveForward(ENABLE);
-        }
-        else
-        {
-            CleanerCommand(CLEANER_OFF);
-            MoveForward(DISABLE);
-
-            MoveBackward(ENABLE);
-            isMoveBackward = 1;
-
-            moveBackTicks = 3;
-            while (moveBackTicks)
-            {
-                moveBackTicks--;
-                Sleep(200);
-            }
-        }
+        // 양옆이 다 막혀 있으면 계속 후진하고, 다음 틱에 다시 확인
+        break;
     }
 }
 
