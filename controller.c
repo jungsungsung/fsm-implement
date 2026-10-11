@@ -66,8 +66,8 @@ void Controller(ObstacleInfo obstacle, int dust)
         CleanerCommand(CLEANER_ON);
         MoveForward(ENABLE);
         state = ST_FORWARD;
-        // 회전이 끝난 틱의 센서 값으로 바로 판단 (앞이 또 막혀 있을 수 있음)
-        // fall through
+        break;
+        // 장애물 판단은 다음 틱에 (1틱 1전이)
 
     case ST_FORWARD:
         //장애물을 만났을 경우 (파워 업 중이어도 취소)
@@ -118,56 +118,6 @@ void Controller(ObstacleInfo obstacle, int dust)
     }
 }
 
-void MovingMotorInterface(MotorCommand command, MoveState state)
-{
-    switch (command)
-    {
-    case MOTOR_FORWARD:
-        switch (state)
-        {
-        case ENABLE:
-            printf("MovingMotorInterface : MOTOR_FORWARD,ENABLE 호출 \n");
-            break;
-        case DISABLE:
-            printf("MovingMotorInterface : MOTOR_FORWARD,DISABLE 호출 \n");
-            break;
-        default:
-            break;
-        }
-        break;
-    case MOTOR_BACKWARD:
-        switch (state)
-        {
-        case ENABLE:
-            printf("MovingMotorInterface : MOTOR_BACKWARD,ENABLE 호출 \n");
-            break;
-        case DISABLE:
-            printf("MovingMotorInterface : MOTOR_BACKWARD,DISABLE 호출 \n");
-            break;
-        default:
-            break;
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-void TurningMotorInterface(MotorCommand command)
-{
-    switch (command)
-    {
-    case MOTOR_TURN_LEFT:
-        printf("TurningMotorInterface : MOTOR_TURN_LEFT,ENABLE 호출 \n");
-        break;
-    case MOTOR_TURN_RIGHT:
-        printf("TurningMotorInterface : MOTOR_TURN_RIGHT,ENABLE 호출 \n");
-        break;
-    default:
-        break;
-    }
-}
-
 void MoveForward(MoveState state)
 {
 
@@ -206,27 +156,6 @@ void MoveBackward(MoveState state)
     case DISABLE:
         printf("MoveBackward : DISABLE 호출\n");
         MovingMotorInterface(MOTOR_BACKWARD, state);
-        break;
-    default:
-        break;
-    }
-}
-
-void CleanerInterface(CleanerState state)
-{
-    switch (state)
-    {
-    case POWER_UP:
-        printf("CleanerInterface : POWER_UP 호출 \n");
-
-        break;
-    case CLEANER_ON:
-        printf("CleanerInterface : CLEANER_ON 호출 \n");
-
-        break;
-    case CLEANER_OFF:
-        printf("CleanerInterface : CLEANER_OFF 호출 \n");
-
         break;
     default:
         break;

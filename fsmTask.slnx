@@ -1,7 +1,8 @@
-<Solution>
+﻿<Solution>
   <Configurations>
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="fsmTask.vcxproj" />
+  <Project Path="fsmTaskTest/fsmTaskTest.vcxproj" Id="55c6fba2-dcb3-493a-9bfa-00293e704946" />
+  <Project Path="fsmTask.vcxproj" Id="ed709563-acf6-48ff-9015-0dcc56faac68" />
 </Solution>

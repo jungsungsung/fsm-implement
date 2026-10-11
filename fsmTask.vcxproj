@@ -140,6 +140,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="actuator.c" />
     <ClCompile Include="controller.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="sensor.c" />
